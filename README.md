@@ -6,14 +6,14 @@
 
 ## What's changed in this fork (PLAF108)
 
-### 🌟 Key Quality-of-Life (QoL) Improvements & Features
+### Quality-of-Life improvements & features
 
 * **Autonomous On-Device Scheduling (8 Daily Feedings):**
-  * The entire feeding schedule runs directly on the ESP32 via on-device SNTP time—no Home Assistant automations required for daily feeding.
+  * The entire feeding schedule runs directly on the ESP32 via on-device SNTP time, so no Home Assistant automations required for daily feeding.
   * 8 independently configurable feeding times (`HH:MM`) with portion counts (`0 = disabled`).
   * Easily adjustable on the fly via the built-in ESPHome Web Server v3 UI or through Home Assistant entities (`time` and `number`).
 
-* **Intelligent Stall Detection & Auto-Unjamming Routine:**
+* ** Stall Detection & Auto-Unjamming Routine:**
   * **Precision timing:** One normal dose takes ~3.5 s. The internal microswitch clicks once (~1.2 s) when the cam leaves the switch, and a second time (~3.5 s) when the next cam reaches it, marking the dose complete.
   * **Stall detection:** If the first click does not register within 2.0 s, or the second click within 4.0 s, the motor is detected as stalled/jammed.
   * **Auto-unjam:** The motor immediately reverses for a configurable duration (default: 1200 ms, adjustable from 200 ms to 1500 ms via slider), pauses briefly to relieve gear tension, and then turns forward again to complete the dose.
@@ -24,11 +24,6 @@
   * If the feeder boots without WiFi or cannot reach an NTP time server, an automated offline emergency schedule kicks in: it feeds at configurable intervals (default: 4 portions every 6 hours, ~56 g/day at 3.5 g/portion, or automatically calculated from the planned daily total).
   * WiFi and API reboot timeouts are disabled (`reboot_timeout: 0s`), meaning once the clock syncs, normal scheduled feedings continue uninterrupted even during prolonged internet or Home Assistant outages.
 
-* **Minimal Flash Wear (RAM-First Architecture):**
-  * All high-frequency operational states (in-progress flags, motor timings, sensor deduplication, active timeouts, unjam states) reside strictly in volatile RAM.
-  * Only persistent configuration (schedule times/portions, calibration settings, and a daily-resetting portions counter) are written to flash NVS.
-  * With only ~15–20 flash writes per day during feedings, flash wear is virtually non-existent, ensuring the ESP32 NOR flash will last for decades.
-
 * **Daily Safety Cap & Overfeed Protection:**
   * Configurable daily portion limit (`max_daily_portions`, default 18).
   * Acts as a child/glitch safety net: scheduled feedings will never exceed this cap in a single calendar day, even if feeding times accidentally overlap.
@@ -36,7 +31,7 @@
 * **Grams Calibration & Accurate Tracking:**
   * Configurable calibration slider (`gram_per_portion`, default: 3.5 g).
   * Live tracking of both portions and grams fed today, as well as planned daily totals.
-  * Formatted as clean text sensors in the Web Server UI (no noisy sparklines, upper/lower axis labels, or accidental graph expansion).
+  * Formatted as clean text sensors in the Web Server UI
   * Timestamp and portion count of the last successful feeding ("Last Feeding: 18:30:00 (2 portions)").
 
 * **Hopper Level & Power Monitoring:**
@@ -46,6 +41,10 @@
 * **Streamlined ESPHome Web Server v3:**
   * Clean, organized UI divided into three clear cards: *Status & Manual Control*, *Feeding Schedule (8 Times)*, and *Settings & Emergency Protection*.
   * All raw hardware test pins hidden (`internal: true`) for a clean, non-cluttered user experience.
+
+* **Minimal Flash Wear (RAM-First Architecture):**
+  * All high-frequency operational states (in-progress flags, motor timings, sensor deduplication, active timeouts, unjam states) reside strictly in RAM.
+  * Only persistent configuration (schedule times/portions, calibration settings, and a daily-resetting portions counter) are written to flash NVS.
 
 ---
 
