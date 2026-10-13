@@ -13,7 +13,7 @@
   * 8 independently configurable feeding times (`HH:MM`) with portion counts (`0 = disabled`).
   * Easily adjustable on the fly via the built-in ESPHome Web Server v3 UI or through Home Assistant entities (`time` and `number`).
 
-* ** Stall Detection & Auto-Unjamming Routine:**
+ * ** Stall Detection & Auto-Unjamming Routine:**
   * **Precision timing:** One normal dose takes ~3.5 s. The internal microswitch clicks once (~1.2 s) when the cam leaves the switch, and a second time (~3.5 s) when the next cam reaches it, marking the dose complete.
   * **Stall detection:** If the first click does not register within 2.0 s, or the second click within 4.0 s, the motor is detected as stalled/jammed.
   * **Auto-unjam:** The motor immediately reverses for a configurable duration (default: 1200 ms, adjustable from 200 ms to 1500 ms via slider), pauses briefly to relieve gear tension, and then turns forward again to complete the dose.
