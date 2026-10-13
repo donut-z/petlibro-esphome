@@ -1,151 +1,1093 @@
+# ==============================================================================
+# Pet Feeder (Petlibro Air PLAF108 - ESP32-C3)
+# ESPHome configuration with Web Server v3, 8 feeding times & advanced emergency fallback
+# ==============================================================================
+
 esphome:
-  name: PLAF108
-  friendly_name: PLAF108
+  name: petlibro-plaf108
+  friendly_name: "Petlibro Air Feeder"
 
 esp32:
   board: esp32-c3-devkitm-1
+  variant: ESP32C3
+  flash_size: 4MB
   framework:
     type: arduino
 
 logger:
   baud_rate: 0
+  level: INFO
 
+# --- Network & connections ---
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-
-  manual_ip:
-    static_ip: 192.168.30.68
-    gateway: 192.168.30.1
-    subnet: 255.255.255.0
+  # Prevents an automatic reboot after 15 min without wifi, so millis() can reach the emergency interval
+  reboot_timeout: 0s
+  ap:
+    ssid: "Petlibro Feeder Fallback"
+    password: !secret ap_password
 
 captive_portal:
 
+mdns:
+
+api:
+  # Prevents a reboot after 15 min without an active Home Assistant connection
+  reboot_timeout: 0s
+  # Optionally enable for an encrypted connection (requires the key in Home Assistant):
+  # encryption:
+  #   key: !secret api_key
+
+ota:
+  platform: esphome
+  # Optional OTA password:
+  # password: !secret ota_password
+
+# --- Time synchronisation (NTP) ---
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: "Europe/Amsterdam"
+    on_time:
+      - seconds: 0
+        then:
+          - script.execute: check_schedules
+    on_time_sync:
+      then:
+        - script.execute: check_schedules
+
+# --- Web Server v3 (three ordered cards) ---
 web_server:
+  port: 80
+  version: 3
+  # Optionally enable to protect the web interface with a username/password:
+  # auth:
+  #   username: !secret web_user
+  #   password: !secret web_pass
+  sorting_groups:
+    - id: group_status
+      name: "Status & Manual Control"
+      sorting_weight: 10
+    - id: group_schedules
+      name: "Feeding Schedule (8 Times)"
+      sorting_weight: 20
+    - id: group_settings
+      name: "Settings & Emergency Protection"
+      sorting_weight: 30
 
-binary_sensor:
-  #I (468) gpio: GPIO[1]| InputEn: 0| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 1| Intr:0                                                                                                                                                                                                                                               
-  #I (599) gpio: GPIO[2]| InputEn: 1| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:0   
+# ==============================================================================
+# HARDWARE CONFIGURATION
+# ==============================================================================
 
-  - platform: gpio
-    pin: 
-      number: GPIO1
-      mode:
-        output: true
-        pulldown: true
-    name: "GPIO1"
-
-  - platform: gpio
-    pin:
-      number: GPIO1
-      mode: INPUT_PULLUP
-    name: "GPIO2"
-
-
-
-  #I (571) gpio: GPIO[0]| InputEn: 1| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:4   
-  - platform: gpio
-    name: Battery
-    pin: 
-      number: GPIO0
-      mode: 
-        pullup: true
-        input:  true  
-
-  #I (590) gpio: GPIO[4]| InputEn: 0| OutputEn: 0| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0
-  - platform: gpio
-    name: 'Battery Plugged In'
-    pin: GPIO4
-
-  #I (562) gpio: GPIO[5]| InputEn: 1| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:4   
-  - platform: gpio
-    pin: 
-      number: GPIO5
-      inverted: true
-      mode: 
-        pullup: true
-        input:  true
-    name: Mains Connected
-  
-  #I (543) gpio: GPIO[8]| InputEn: 1| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:4         # SENSOR                                                                   
-  - platform: gpio
-    name: Motor Sensor
-    pin: 
-      inverted: true
-      number: GPIO8
-      mode: 
-        pullup: true
-        input:  true
-
-  #I (553) gpio: GPIO[18]| InputEn: 1| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:0                                                                   
-  - platform: gpio
-    pin: 
-      number: GPIO18
-      mode: 
-        pullup: true
-        input:  true
-    name: Food Sensor
-
-  #I (503) gpio: GPIO[19]| InputEn: 1| OutputEn: 0| OpenDrain: 0| Pullup: 1| Pulldown: 0| Intr:4        
-  - platform: gpio
-    pin: 
-      number: GPIO19
-      mode: 
-        pullup: true
-    name: Reset Button
-
-#I (530) gpio: GPIO[3]| InputEn: 0| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0  
+# Status LED on front panel
 status_led:
-  pin: 
+  pin:
     number: GPIO3
     mode:
       output: true
 
-switch:
-  - platform: restart
-    name: "Restart"
-
-  #I (481) gpio: GPIO[6]| InputEn: 0| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0    
+# Motor & Alarm LED outputs
+output:
   - platform: gpio
-    name: 'Motor Right'
-    pin: 
-      number: GPIO6
-      mode: 
-        output: true
-    restore_mode: ALWAYS_OFF
-
-  #I (490) gpio: GPIO[7]| InputEn: 0| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0 
+    pin: GPIO6
+    id: motor_forward_pin
   - platform: gpio
-    name: 'Motor Left'
-    pin: 
-      number: GPIO7
-      mode: 
-        output: true
-    restore_mode: ALWAYS_OFF
-  
-  #I (516) gpio: GPIO[10]| InputEn: 0| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 1| Intr:0             
+    pin: GPIO7
+    id: motor_reverse_pin
   - platform: gpio
-    name: 'Alarm LED'
-    pin: 
-      number: GPIO10
-      mode: 
-        output: true
-        pulldown: true
+    pin: GPIO10
+    id: alarm_led_pin
 
-  #I (580) gpio: GPIO[9]| InputEn: 0| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0     
+# ==============================================================================
+# GLOBAL VARIABLES (RAM vs FLASH)
+# ==============================================================================
+
+globals:
+  # Dynamic operational states (RAM only: no flash wear)
+  - id: dose_active
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+  - id: jam_detected
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+  - id: portions_remaining
+    type: int
+    restore_value: no
+    initial_value: "0"
+
+  - id: total_portions_in_run
+    type: int
+    restore_value: no
+    initial_value: "0"
+
+  - id: microswitch_click_count
+    type: int
+    restore_value: no
+    initial_value: "0"
+
+  - id: last_emergency_feed_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+
+  - id: last_schedule_key
+    type: int
+    restore_value: no
+    initial_value: "-1"
+
+  # Daily tracking counter (Stored in flash NVS, resets daily at midnight)
+  - id: daily_fed_portions_count
+    type: int
+    restore_value: yes
+    initial_value: "0"
+
+# ==============================================================================
+# HARDWARE SENSORS & STATUS SENSORS
+# ==============================================================================
+
+binary_sensor:
+  # Microswitch (detection cam motor): internal, filtered via script
   - platform: gpio
-    name: 'Enable Food Sensor'
-    pin: 
-      number: GPIO9
-      mode: 
-        output: true
-    restore_mode: ALWAYS_ON
+    id: microswitch
+    pin:
+      number: GPIO8
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    internal: true
+    filters:
+      - delayed_on: 20ms
+      - delayed_off: 20ms
+    on_press:
+      then:
+        - lambda: |-
+            if (id(dose_active)) {
+              id(microswitch_click_count)++;
+              ESP_LOGD("feeder", "Microswitch click detected: #%d", id(microswitch_click_count));
+            }
 
-uart:
-  tx_pin: GPIO21
-  rx_pin: GPIO20
-  baud_rate: 115200
+  # Reset button on rear (manual 1-portion feed on single press)
+  - platform: gpio
+    id: physical_reset_button
+    pin:
+      number: GPIO19
+      mode:
+        input: true
+        pullup: true
+    internal: true
+    filters:
+      - delayed_on: 50ms
+      - delayed_off: 50ms
+    on_press:
+      then:
+        - script.execute:
+            id: dispense_multiple_portions
+            count: 1
+
+  # Hopper food sensor (photodiode / IR sensor with debounce)
+  - platform: gpio
+    id: raw_food_sensor
+    pin:
+      number: GPIO18
+      mode:
+        input: true
+        pullup: true
+    internal: true
+    filters:
+      - delayed_on: 1s
+      - delayed_off: 1s
+    on_state:
+      then:
+        - component.update: food_hopper_status
+
+  # Problem sensor for Home Assistant (binary_sensor with problem device_class)
+  - platform: template
+    name: "Feeder Fault"
+    id: feeder_fault_sensor
+    device_class: problem
+    web_server:
+      sorting_group_id: group_status
+      sorting_weight: 15
+    lambda: |-
+      return id(jam_detected);
+
+  # Feeding in progress indicator
+  - platform: template
+    name: "Dispensing in Progress"
+    id: feeder_dispensing_sensor
+    device_class: running
+    web_server:
+      sorting_group_id: group_status
+      sorting_weight: 16
+    lambda: |-
+      return id(dose_active);
+
+  # Power supply status (Mains connected)
+  - platform: gpio
+    id: raw_mains_connected
+    name: "Mains Power Connected"
+    device_class: power
+    pin:
+      number: GPIO5
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    web_server:
+      sorting_group_id: group_settings
+      sorting_weight: 40
+    on_state:
+      then:
+        - component.update: power_source_text
+
+  # Battery presence sensor
+  - platform: gpio
+    id: raw_battery_plugged_in
+    name: "Backup Battery Installed"
+    pin: GPIO4
+    web_server:
+      sorting_group_id: group_settings
+      sorting_weight: 41
+    on_state:
+      then:
+        - component.update: power_source_text
+
+# ==============================================================================
+# ANALOG SENSORS & SYSTEM METRICS
+# ==============================================================================
 
 sensor:
   - platform: uptime
-    name: Uptime
+    name: "Uptime"
+    id: feeder_uptime
+    web_server:
+      sorting_group_id: group_settings
+      sorting_weight: 45
+
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    id: wifi_signal_dbm
+    update_interval: 60s
+    web_server:
+      sorting_group_id: group_settings
+      sorting_weight: 46
+
+  # Planned portions sum for today
+  - platform: template
+    name: "Planned Portions (Daily)"
+    id: planned_daily_portions
+    icon: "mdi:calculator"
+    unit_of_measurement: "portions"
+    accuracy_decimals: 0
+    web_server:
+      sorting_group_id: group_status
+      sorting_weight: 4
+    lambda: |-
+      int total = 0;
+      total += (int) id(sch1_portions).state;
+      total += (int) id(sch2_portions).state;
+      total += (int) id(sch3_portions).state;
+      total += (int) id(sch4_portions).state;
+      total += (int) id(sch5_portions).state;
+      total += (int) id(sch6_portions).state;
+      total += (int) id(sch7_portions).state;
+      total += (int) id(sch8_portions).state;
+      return (float) total;
+    on_value:
+      then:
+        - component.update: planned_daily_grams
+        - component.update: portions_fed_today_text
+
+  # Planned total grams based on planned portions * grams per portion
+  - platform: template
+    name: "Planned Grams (Daily)"
+    id: planned_daily_grams
+    icon: "mdi:weight-gram"
+    unit_of_measurement: "g"
+    accuracy_decimals: 1
+    web_server:
+      sorting_group_id: group_status
+      sorting_weight: 5
+    lambda: |-
+      return id(planned_daily_portions).state * id(gram_per_portion).state;
+
+# ==============================================================================
+# TEXT SENSORS (CLEAN WEB SERVER DISPLAY)
+# ==============================================================================
+
+text_sensor:
+  # Feeder state: Idle, Dispensing, Stalled
+  - platform: template
+    name: "Feeder State"
+    id: feeder_state
+    icon: "mdi:information-outline"
+    web_server:
+      sorting_group_id: group_status
+      sorting_weight: 1
+    lambda: |-
+      if (id(jam_detected)) {
+        return std::string("FAULT: Motor Stalled / Jammed");
+      }
+      if (id(dose_active)) {
+        char buf[48];
+        snprintf(buf, sizeof(buf), "Dispensing (%d portions left)", id(portions_remaining));
+        return std::string(buf);
+      }
+      return std::string("Idle (Ready)");
+
+  # Today's fed portions display
+  - platform: template
+    name: "Portions Fed Today"
+    id: portions_fed_today_text
+    icon: "mdi:counter"
+    web_server:
+      sorting_group_id: group_status
+      sorting_weight: 2
+    lambda: |-
+      char buf[48];
+      snprintf(buf, sizeof(buf), "%d / %d portions",
+               id(daily_fed_portions_count), (int) id(planned_daily_portions).state);
+      return std::string(buf);
+
+  # Today's fed grams display
+  - platform: template
+    name: "Grams Fed Today"
+    id: grams_fed_today_text
+    icon: "mdi:scale"
+    web_server:
+      sorting_group_id: group_status
+      sorting_weight: 3
+    lambda: |-
+      float fed_grams = id(daily_fed_portions_count) * id(gram_per_portion).state;
+      float planned_grams = id(planned_daily_portions).state * id(gram_per_portion).state;
+      char buf[48];
+      snprintf(buf, sizeof(buf), "%.1f / %.1f g", fed_grams, planned_grams);
+      return std::string(buf);
+
+  # Last feeding timestamp
+  - platform: template
+    name: "Last Feeding"
+    id: last_feeding_time
+    icon: "mdi:clock-check-outline"
+    web_server:
+      sorting_group_id: group_status
+      sorting_weight: 6
+
+  # Hopper stock status
+  - platform: template
+    name: "Food Hopper Status"
+    id: food_hopper_status
+    icon: "mdi:silo"
+    web_server:
+      sorting_group_id: group_status
+      sorting_weight: 7
+    lambda: |-
+      if (id(raw_food_sensor).state) {
+        return std::string("Attention: hopper almost empty / refill!");
+      }
+      return std::string("Enough kibble in stock");
+
+  # Power source indicator
+  - platform: template
+    name: "Power Source"
+    id: power_source_text
+    icon: "mdi:power-plug"
+    web_server:
+      sorting_group_id: group_settings
+      sorting_weight: 42
+    lambda: |-
+      if (id(raw_mains_connected).state) {
+        return std::string("Mains Adapter (OK)");
+      }
+      if (id(raw_battery_plugged_in).state) {
+        return std::string("Running on Backup Battery!");
+      }
+      return std::string("Unknown / No Battery");
+
+# ==============================================================================
+# SETTINGS & CALIBRATION (PERSISTENT FLASH NVS)
+# ==============================================================================
+
+number:
+  # Grams per portion calibration
+  - platform: template
+    name: "Grams per Portion"
+    id: gram_per_portion
+    icon: "mdi:scale-balance"
+    min_value: 1.0
+    max_value: 10.0
+    step: 0.1
+    unit_of_measurement: "g"
+    mode: box
+    restore_value: true
+    initial_value: 3.5
+    optimistic: true
+    web_server:
+      sorting_group_id: group_settings
+      sorting_weight: 1
+    on_value:
+      then:
+        - component.update: planned_daily_grams
+        - component.update: grams_fed_today_text
+
+  # Daily portion cap safety net
+  - platform: template
+    name: "Max Daily Portions (Cap)"
+    id: max_daily_portions
+    icon: "mdi:shield-alert-outline"
+    min_value: 1
+    max_value: 30
+    step: 1
+    unit_of_measurement: "portions"
+    mode: box
+    restore_value: true
+    initial_value: 18
+    optimistic: true
+    web_server:
+      sorting_group_id: group_settings
+      sorting_weight: 2
+
+  # Emergency interval without NTP (hours)
+  - platform: template
+    name: "Offline Interval (Hours)"
+    id: emergency_interval_hours
+    icon: "mdi:timer-sand"
+    min_value: 1
+    max_value: 24
+    step: 1
+    unit_of_measurement: "h"
+    mode: box
+    restore_value: true
+    initial_value: 6
+    optimistic: true
+    web_server:
+      sorting_group_id: group_settings
+      sorting_weight: 3
+
+  # Emergency portion count per interval without NTP
+  - platform: template
+    name: "Offline Portions per Feed"
+    id: emergency_portions
+    icon: "mdi:food-drumstick"
+    min_value: 1
+    max_value: 10
+    step: 1
+    unit_of_measurement: "portions"
+    mode: box
+    restore_value: true
+    initial_value: 4
+    optimistic: true
+    web_server:
+      sorting_group_id: group_settings
+      sorting_weight: 4
+
+  # Motor reverse unjam duration in ms
+  - platform: template
+    name: "Unjam Reverse Duration"
+    id: unjam_reverse_ms
+    icon: "mdi:backup-restore"
+    min_value: 200
+    max_value: 1500
+    step: 50
+    unit_of_measurement: "ms"
+    mode: slider
+    restore_value: true
+    initial_value: 1200
+    optimistic: true
+    web_server:
+      sorting_group_id: group_settings
+      sorting_weight: 5
+
+  # Manual feed portions selector (1 to 5)
+  - platform: template
+    name: "Manual Feed Portions"
+    id: manual_feed_portions
+    icon: "mdi:counter"
+    min_value: 1
+    max_value: 5
+    step: 1
+    unit_of_measurement: "portions"
+    mode: slider
+    restore_value: false
+    initial_value: 1
+    optimistic: true
+    web_server:
+      sorting_group_id: group_status
+      sorting_weight: 10
+
+  # Feeding schedule portion numbers (0 = off)
+  - platform: template
+    name: "Schedule 1 Portions"
+    id: sch1_portions
+    icon: "mdi:numeric-1-box-outline"
+    min_value: 0
+    max_value: 10
+    step: 1
+    restore_value: true
+    initial_value: 2
+    optimistic: true
+    web_server:
+      sorting_group_id: group_schedules
+      sorting_weight: 2
+    on_value:
+      then:
+        - component.update: planned_daily_portions
+
+  - platform: template
+    name: "Schedule 2 Portions"
+    id: sch2_portions
+    icon: "mdi:numeric-2-box-outline"
+    min_value: 0
+    max_value: 10
+    step: 1
+    restore_value: true
+    initial_value: 2
+    optimistic: true
+    web_server:
+      sorting_group_id: group_schedules
+      sorting_weight: 4
+    on_value:
+      then:
+        - component.update: planned_daily_portions
+
+  - platform: template
+    name: "Schedule 3 Portions"
+    id: sch3_portions
+    icon: "mdi:numeric-3-box-outline"
+    min_value: 0
+    max_value: 10
+    step: 1
+    restore_value: true
+    initial_value: 2
+    optimistic: true
+    web_server:
+      sorting_group_id: group_schedules
+      sorting_weight: 6
+    on_value:
+      then:
+        - component.update: planned_daily_portions
+
+  - platform: template
+    name: "Schedule 4 Portions"
+    id: sch4_portions
+    icon: "mdi:numeric-4-box-outline"
+    min_value: 0
+    max_value: 10
+    step: 1
+    restore_value: true
+    initial_value: 2
+    optimistic: true
+    web_server:
+      sorting_group_id: group_schedules
+      sorting_weight: 8
+    on_value:
+      then:
+        - component.update: planned_daily_portions
+
+  - platform: template
+    name: "Schedule 5 Portions"
+    id: sch5_portions
+    icon: "mdi:numeric-5-box-outline"
+    min_value: 0
+    max_value: 10
+    step: 1
+    restore_value: true
+    initial_value: 2
+    optimistic: true
+    web_server:
+      sorting_group_id: group_schedules
+      sorting_weight: 10
+    on_value:
+      then:
+        - component.update: planned_daily_portions
+
+  - platform: template
+    name: "Schedule 6 Portions"
+    id: sch6_portions
+    icon: "mdi:numeric-6-box-outline"
+    min_value: 0
+    max_value: 10
+    step: 1
+    restore_value: true
+    initial_value: 2
+    optimistic: true
+    web_server:
+      sorting_group_id: group_schedules
+      sorting_weight: 12
+    on_value:
+      then:
+        - component.update: planned_daily_portions
+
+  - platform: template
+    name: "Schedule 7 Portions"
+    id: sch7_portions
+    icon: "mdi:numeric-7-box-outline"
+    min_value: 0
+    max_value: 10
+    step: 1
+    restore_value: true
+    initial_value: 2
+    optimistic: true
+    web_server:
+      sorting_group_id: group_schedules
+      sorting_weight: 14
+    on_value:
+      then:
+        - component.update: planned_daily_portions
+
+  - platform: template
+    name: "Schedule 8 Portions"
+    id: sch8_portions
+    icon: "mdi:numeric-8-box-outline"
+    min_value: 0
+    max_value: 10
+    step: 1
+    restore_value: true
+    initial_value: 0
+    optimistic: true
+    web_server:
+      sorting_group_id: group_schedules
+      sorting_weight: 16
+    on_value:
+      then:
+        - component.update: planned_daily_portions
+
+# ==============================================================================
+# SCHEDULE TIMES (HH:MM VIA TIME COMPONENT)
+# ==============================================================================
+
+datetime:
+  - platform: template
+    name: "Schedule 1 Time"
+    id: sch1_time
+    type: time
+    restore_value: true
+    initial_value: "03:30:00"
+    optimistic: true
+    web_server:
+      sorting_group_id: group_schedules
+      sorting_weight: 1
+
+  - platform: template
+    name: "Schedule 2 Time"
+    id: sch2_time
+    type: time
+    restore_value: true
+    initial_value: "07:30:00"
+    optimistic: true
+    web_server:
+      sorting_group_id: group_schedules
+      sorting_weight: 3
+
+  - platform: template
+    name: "Schedule 3 Time"
+    id: sch3_time
+    type: time
+    restore_value: true
+    initial_value: "11:30:00"
+    optimistic: true
+    web_server:
+      sorting_group_id: group_schedules
+      sorting_weight: 5
+
+  - platform: template
+    name: "Schedule 4 Time"
+    id: sch4_time
+    type: time
+    restore_value: true
+    initial_value: "14:30:00"
+    optimistic: true
+    web_server:
+      sorting_group_id: group_schedules
+      sorting_weight: 7
+
+  - platform: template
+    name: "Schedule 5 Time"
+    id: sch5_time
+    type: time
+    restore_value: true
+    initial_value: "18:00:00"
+    optimistic: true
+    web_server:
+      sorting_group_id: group_schedules
+      sorting_weight: 9
+
+  - platform: template
+    name: "Schedule 6 Time"
+    id: sch6_time
+    type: time
+    restore_value: true
+    initial_value: "20:30:00"
+    optimistic: true
+    web_server:
+      sorting_group_id: group_schedules
+      sorting_weight: 11
+
+  - platform: template
+    name: "Schedule 7 Time"
+    id: sch7_time
+    type: time
+    restore_value: true
+    initial_value: "23:00:00"
+    optimistic: true
+    web_server:
+      sorting_group_id: group_schedules
+      sorting_weight: 13
+
+  - platform: template
+    name: "Schedule 8 Time"
+    id: sch8_time
+    type: time
+    restore_value: true
+    initial_value: "00:00:00"
+    optimistic: true
+    web_server:
+      sorting_group_id: group_schedules
+      sorting_weight: 15
+
+# ==============================================================================
+# ACTION BUTTONS & SERVICE CONTROLS
+# ==============================================================================
+
+button:
+  # Trigger manual feeding with selected number of portions
+  - platform: template
+    name: "Feed Selected Portions"
+    id: trigger_manual_feed
+    icon: "mdi:food"
+    web_server:
+      sorting_group_id: group_status
+      sorting_weight: 11
+    on_press:
+      then:
+        - script.execute:
+            id: dispense_multiple_portions
+            count: !lambda 'return (int) id(manual_feed_portions).state;'
+
+  # Quick feed 1 portion button
+  - platform: template
+    name: "Feed 1 Portion"
+    id: feed_1_portion_btn
+    icon: "mdi:plus-circle-outline"
+    web_server:
+      sorting_group_id: group_status
+      sorting_weight: 12
+    on_press:
+      then:
+        - script.execute:
+            id: dispense_multiple_portions
+            count: 1
+
+  # Reset daily portion counter
+  - platform: template
+    name: "Reset Daily Counter"
+    id: reset_daily_counter_btn
+    icon: "mdi:restore"
+    web_server:
+      sorting_group_id: group_status
+      sorting_weight: 13
+    on_press:
+      then:
+        - script.execute: reset_daily_counter
+
+  # Manual unjam trigger
+  - platform: template
+    name: "Unjam Motor"
+    id: unjam_motor_btn
+    icon: "mdi:wrench"
+    web_server:
+      sorting_group_id: group_status
+      sorting_weight: 14
+    on_press:
+      then:
+        - script.execute: unjam_routine
+
+  # Restart ESP32
+  - platform: restart
+    name: "Restart Feeder"
+    id: restart_device_btn
+    web_server:
+      sorting_group_id: group_settings
+      sorting_weight: 50
+
+# Hardware control switches (Sensors permanently active, raw motor pins internal)
+switch:
+  - platform: gpio
+    pin: GPIO9
+    id: food_sensor_power
+    name: "Food Sensor Power"
+    restore_mode: ALWAYS_ON
+    internal: true
+
+# ==============================================================================
+# CONTROL LOGIC & SCRIPTS
+# ==============================================================================
+
+script:
+  # ----------------------------------------------------------------------------
+  # SINGLE DOSE DISPENSE WITH MICROSWITCH TIMING & STALL DETECTION
+  # ----------------------------------------------------------------------------
+  - id: dispense_one_dose
+    mode: single
+    then:
+      - lambda: |-
+          id(microswitch_click_count) = 0;
+          ESP_LOGI("feeder", "Starting single dose...");
+      - output.turn_on: motor_forward_pin
+
+      # Phase 1: Cam leaves the microswitch (normally ~1.2 s, timeout: 2.0 s)
+      - wait_until:
+          condition:
+            lambda: 'return id(microswitch_click_count) >= 1;'
+          timeout: 2.0s
+
+      - if:
+          condition:
+            lambda: 'return id(microswitch_click_count) < 1;'
+          then:
+            - output.turn_off: motor_forward_pin
+            - ESP_LOGW("feeder", "Stall detected in phase 1 (switch did not release within 2s)!");
+            - script.execute: unjam_routine
+            - wait_until:
+                condition:
+                  lambda: 'return !id(unjam_routine).is_running();'
+            # Retry after unjam
+            - lambda: |-
+                id(microswitch_click_count) = 0;
+            - output.turn_on: motor_forward_pin
+            - wait_until:
+                condition:
+                  lambda: 'return id(microswitch_click_count) >= 1;'
+                timeout: 2.0s
+            - if:
+                condition:
+                  lambda: 'return id(microswitch_click_count) < 1;'
+                then:
+                  - output.turn_off: motor_forward_pin
+                  - script.execute: raise_fault
+                  - script.stop: dispense_one_dose
+
+      # Phase 2: Cam completes turn to next switch position (normally ~2.3 s after click 1, timeout: 4.0 s)
+      - wait_until:
+          condition:
+            lambda: 'return id(microswitch_click_count) >= 2;'
+          timeout: 4.0s
+
+      - if:
+          condition:
+            lambda: 'return id(microswitch_click_count) < 2;'
+          then:
+            - output.turn_off: motor_forward_pin
+            - ESP_LOGW("feeder", "Stall detected in phase 2 (switch did not click 2nd time within 4s)!");
+            - script.execute: unjam_routine
+            - wait_until:
+                condition:
+                  lambda: 'return !id(unjam_routine).is_running();'
+            # Retry phase 2 after unjam
+            - output.turn_on: motor_forward_pin
+            - wait_until:
+                condition:
+                  lambda: 'return id(microswitch_click_count) >= 2;'
+                timeout: 4.0s
+            - if:
+                condition:
+                  lambda: 'return id(microswitch_click_count) < 2;'
+                then:
+                  - output.turn_off: motor_forward_pin
+                  - script.execute: raise_fault
+                  - script.stop: dispense_one_dose
+
+      # Normal successful dose completion
+      - output.turn_off: motor_forward_pin
+      - delay: 200ms
+      - ESP_LOGI("feeder", "Single dose finished successfully.");
+
+  # ----------------------------------------------------------------------------
+  # MULTI-PORTION DISPENSE LOOP WITH SAFETY CAPPING
+  # ----------------------------------------------------------------------------
+  - id: dispense_multiple_portions
+    mode: single
+    parameters:
+      count: int
+    then:
+      - if:
+          condition:
+            lambda: 'return id(jam_detected);'
+          then:
+            - ESP_LOGE("feeder", "Cannot dispense: Feeder is in FAULT state!");
+            - script.stop: dispense_multiple_portions
+
+      - lambda: |-
+          id(dose_active) = true;
+          id(portions_remaining) = count;
+          id(total_portions_in_run) = count;
+          id(feeder_dispensing_sensor).publish_state(true);
+          id(feeder_state).publish_state("Dispensing...");
+
+      - while:
+          condition:
+            lambda: 'return id(portions_remaining) > 0 && !id(jam_detected);'
+          then:
+            - script.execute: dispense_one_dose
+            - wait_until:
+                condition:
+                  lambda: 'return !id(dispense_one_dose).is_running();'
+
+            - if:
+                condition:
+                  lambda: 'return !id(jam_detected);'
+                then:
+                  - lambda: |-
+                      id(portions_remaining)--;
+                      id(daily_fed_portions_count)++;
+                      ESP_LOGI("feeder", "Portion completed. Remaining: %d. Total fed today: %d",
+                               id(portions_remaining), id(daily_fed_portions_count));
+                  - component.update: portions_fed_today_text
+                  - component.update: grams_fed_today_text
+                  - delay: 400ms
+
+      - lambda: |-
+          id(dose_active) = false;
+          id(portions_remaining) = 0;
+          id(feeder_dispensing_sensor).publish_state(false);
+
+          if (!id(jam_detected)) {
+            // Update last feeding text sensor
+            auto time_now = id(sntp_time).now();
+            char time_buf[64];
+            if (time_now.is_valid()) {
+              snprintf(time_buf, sizeof(time_buf), "%02d:%02d:%02d (%d portions)",
+                       time_now.hour, time_now.minute, time_now.second, id(total_portions_in_run));
+            } else {
+              snprintf(time_buf, sizeof(time_buf), "Offline feed (%d portions)", id(total_portions_in_run));
+            }
+            id(last_feeding_time).publish_state(time_buf);
+            id(feeder_state).publish_state("Idle (Ready)");
+          }
+
+  # ----------------------------------------------------------------------------
+  # UNJAM ROUTINE: REVERSE FOR CONFIGURED DURATION
+  # ----------------------------------------------------------------------------
+  - id: unjam_routine
+    mode: single
+    then:
+      - ESP_LOGW("feeder", "Unjam routine starting: stopping forward drive...");
+      - output.turn_off: motor_forward_pin
+      - delay: 250ms
+      - ESP_LOGW("feeder", "Unjam routine: reversing motor for %.0f ms...", id(unjam_reverse_ms).state);
+      - output.turn_on: motor_reverse_pin
+      - delay: !lambda 'return (uint32_t) id(unjam_reverse_ms).state;'
+      - output.turn_off: motor_reverse_pin
+      - delay: 350ms
+      - ESP_LOGI("feeder", "Unjam routine completed.");
+
+  # ----------------------------------------------------------------------------
+  # FAULT HANDLING (MOTOR STALL / HARD JAM)
+  # ----------------------------------------------------------------------------
+  - id: raise_fault
+    mode: single
+    then:
+      - output.turn_off: motor_forward_pin
+      - output.turn_off: motor_reverse_pin
+      - lambda: |-
+          id(jam_detected) = true;
+          id(dose_active) = false;
+          id(feeder_fault_sensor).publish_state(true);
+          id(feeder_dispensing_sensor).publish_state(false);
+          id(feeder_state).publish_state("FAULT: Motor Stalled / Jammed");
+          ESP_LOGE("feeder", "CRITICAL: Feeder jammed! Motor stopped, alarm raised.");
+      - output.turn_on: alarm_led_pin
+
+  # Clear fault manually or automatically on next scheduled cycle
+  - id: clear_fault
+    mode: single
+    then:
+      - output.turn_off: alarm_led_pin
+      - lambda: |-
+          id(jam_detected) = false;
+          id(feeder_fault_sensor).publish_state(false);
+          id(feeder_state).publish_state("Idle (Ready)");
+          ESP_LOGI("feeder", "Fault cleared.");
+
+  # ----------------------------------------------------------------------------
+  # RESET DAILY COUNTER (AT MIDNIGHT OR MANUALLY)
+  # ----------------------------------------------------------------------------
+  - id: reset_daily_counter
+    mode: single
+    then:
+      - lambda: |-
+          id(daily_fed_portions_count) = 0;
+          ESP_LOGI("feeder", "Daily portion counter reset to 0.");
+      - component.update: portions_fed_today_text
+      - component.update: grams_fed_today_text
+
+  # ----------------------------------------------------------------------------
+  # SCHEDULE VERIFICATION & EXECUTION (CALLED EVERY MINUTE)
+  # ----------------------------------------------------------------------------
+  - id: check_schedules
+    mode: single
+    then:
+      - lambda: |-
+          auto time_now = id(sntp_time).now();
+
+          // 1. If time is invalid (no WiFi/NTP), run offline emergency logic
+          if (!time_now.is_valid()) {
+            uint32_t now_ms = millis();
+            uint32_t interval_ms = (uint32_t)(id(emergency_interval_hours).state * 3600.0f * 1000.0f);
+            if (id(last_emergency_feed_ms) == 0 || (now_ms - id(last_emergency_feed_ms) >= interval_ms)) {
+              id(last_emergency_feed_ms) = now_ms;
+              int portions = (int) id(emergency_portions).state;
+              ESP_LOGW("feeder", "Offline fallback active! Triggering %d emergency portions.", portions);
+              id(dispense_multiple_portions).execute(portions);
+            }
+            return;
+          }
+
+          // 2. Midnight reset (00:00)
+          if (time_now.hour == 0 && time_now.minute == 0) {
+            id(reset_daily_counter).execute();
+          }
+
+          // 3. Clear faults if a new scheduled moment arrives
+          if (id(jam_detected)) {
+            id(clear_fault).execute();
+          }
+
+          // 4. Prevent duplicate execution within the same minute
+          int key = time_now.day_of_year * 1440 + time_now.hour * 60 + time_now.minute;
+          if (key == id(last_schedule_key)) return;
+          id(last_schedule_key) = key;
+
+          // Helper macro to test schedule moments
+          #define MATCH_SCH(sch_num) \
+            (time_now.hour == id(sch##sch_num##_time).hour && \
+             time_now.minute == id(sch##sch_num##_time).minute && \
+             (int) id(sch##sch_num##_portions).state > 0)
+
+          int portions_to_dispense = 0;
+          if (MATCH_SCH(1)) portions_to_dispense = (int) id(sch1_portions).state;
+          else if (MATCH_SCH(2)) portions_to_dispense = (int) id(sch2_portions).state;
+          else if (MATCH_SCH(3)) portions_to_dispense = (int) id(sch3_portions).state;
+          else if (MATCH_SCH(4)) portions_to_dispense = (int) id(sch4_portions).state;
+          else if (MATCH_SCH(5)) portions_to_dispense = (int) id(sch5_portions).state;
+          else if (MATCH_SCH(6)) portions_to_dispense = (int) id(sch6_portions).state;
+          else if (MATCH_SCH(7)) portions_to_dispense = (int) id(sch7_portions).state;
+          else if (MATCH_SCH(8)) portions_to_dispense = (int) id(sch8_portions).state;
+
+          #undef MATCH_SCH
+
+          if (portions_to_dispense > 0) {
+            int max_p = (int) id(max_daily_portions).state;
+            if (id(daily_fed_portions_count) + portions_to_dispense > max_p) {
+              ESP_LOGW("feeder", "Daily safety cap exceeded! Fed: %d, Requested: %d, Cap: %d. Cancelling.",
+                       id(daily_fed_portions_count), portions_to_dispense, max_p);
+              return;
+            }
+            id(dispense_multiple_portions).execute(portions_to_dispense);
+          }
