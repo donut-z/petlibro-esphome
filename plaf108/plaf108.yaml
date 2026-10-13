@@ -4,7 +4,7 @@
 # ==============================================================================
 
 esphome:
-  name: feeder-Odin
+  name: feeder-odin
   friendly_name: "Odin's Feeder"
 
 esp32:
